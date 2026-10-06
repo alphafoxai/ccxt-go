@@ -2228,6 +2228,24 @@ func (this *HyperliquidCore) handleBuilderFeeApprovalBody(ch chan any) any {
 		ch <- true // skip if builder fee is already approved
 		return nil
 	}
+	// AlphaFox: callers that manage builder approval themselves can turn the automatic
+	// approval off; InitializeClient then sends no approveBuilderFee action at all.
+	if !IsTrue(this.SafeBool(this.Options, "builderFeeAutoApprove", true)) {
+
+		ch <- true
+		return nil
+	}
+	// AlphaFox: a failed approval used to be retried on every order (one extra signed
+	// /exchange round trip per createOrder). Remember the failure and back off.
+	var builderFeeFailedAt any = this.SafeInteger(this.Options, "builderFeeApprovalFailedAt")
+	if IsTrue(!IsEqual(builderFeeFailedAt, nil)) {
+		var builderFeeRetryDelay any = this.SafeInteger(this.Options, "builderFeeApprovalRetryDelay", 3600000)
+		if IsTrue(IsLessThan(Subtract(this.Milliseconds(), builderFeeFailedAt), builderFeeRetryDelay)) {
+
+			ch <- true
+			return nil
+		}
+	}
 
 	{
 		func(this *HyperliquidCore) (ret_ any) {
@@ -2239,6 +2257,7 @@ func (this *HyperliquidCore) handleBuilderFeeApprovalBody(ch chan any) any {
 					ret_ = func(this *HyperliquidCore) any {
 						// catch block:
 						AddElementToObject(this.Options, "builderFee", false) // disable builder fee if an error occurs
+						AddElementToObject(this.Options, "builderFeeApprovalFailedAt", this.Milliseconds())
 						return nil
 					}(this)
 				}
@@ -2301,7 +2320,18 @@ func (this *HyperliquidCore) isUnifiedEnabledBody(ch chan any, method any, optio
 	enableUnifiedMarginparamsVariable := this.HandleOptionAndParams(params, method, "enableUnifiedMargin")
 	enableUnifiedMargin = GetValue(enableUnifiedMarginparamsVariable, 0)
 	params = GetValue(enableUnifiedMarginparamsVariable, 1)
-	if IsTrue(IsTrue(IsEqual(enableUnifiedMargin, nil)) || IsTrue(shouldRefresh)) {
+	// AlphaFox: a failed or non-string userAbstraction lookup used to cache nil, so every
+	// later call (e.g. InitializeClient before each order) re-sent the weight-20 /info
+	// request. Back off for a while after a failed lookup unless a refresh is forced.
+	var unifiedLookupBackoff bool = false
+	if IsTrue(IsTrue(IsEqual(enableUnifiedMargin, nil)) && !IsTrue(shouldRefresh)) {
+		var unifiedFailedAt any = this.SafeInteger(this.Options, "enableUnifiedMarginFailedAt")
+		if IsTrue(!IsEqual(unifiedFailedAt, nil)) {
+			var unifiedRetryDelay any = this.SafeInteger(this.Options, "enableUnifiedMarginRetryDelay", 300000)
+			unifiedLookupBackoff = IsTrue(IsLessThan(Subtract(this.Milliseconds(), unifiedFailedAt), unifiedRetryDelay))
+		}
+	}
+	if IsTrue(IsTrue(IsTrue(IsEqual(enableUnifiedMargin, nil)) && !IsTrue(unifiedLookupBackoff)) || IsTrue(shouldRefresh)) {
 		var request map[string]any = map[string]any{
 			"type": "userAbstraction",
 			"user": userAddress,
@@ -2343,6 +2373,9 @@ func (this *HyperliquidCore) isUnifiedEnabledBody(ch chan any, method any, optio
 			response = Replace(response, "\"", "")
 			response = Replace(response, "\"", "")
 			enableUnifiedMargin = IsEqual(response, "unifiedAccount")
+			AddElementToObject(this.Options, "enableUnifiedMarginFailedAt", nil)
+		} else {
+			AddElementToObject(this.Options, "enableUnifiedMarginFailedAt", this.Milliseconds())
 		}
 		// don't cache this result if this is a different addresss
 		AddElementToObject(this.Options, "enableUnifiedMargin", enableUnifiedMargin) // cache this for future calls

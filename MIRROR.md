@@ -1,8 +1,20 @@
 # ccxt Go v4 mirror for AlphaFox
 
 This repository holds the `go/v4` module of [ccxt](https://github.com/ccxt/ccxt) (MIT),
-taken from `github.com/ccxt/ccxt/go/v4` at release **v4.5.77**, with one change:
-`gate.go` signs and sends the same query key order.
+taken from `github.com/ccxt/ccxt/go/v4` at release **v4.5.77**, with these changes:
+
+- `gate.go` signs and sends the same query key order.
+- `hyperliquid.go` stops `InitializeClient` (which runs before every private call)
+  from retrying failed one-shot lookups on every order:
+  - `handleBuilderFeeApproval`: new option `builderFeeAutoApprove` (default true;
+    false skips the approval entirely). A failed approval is not retried until
+    `builderFeeApprovalRetryDelay` ms (default 3600000) after
+    `builderFeeApprovalFailedAt`.
+  - `isUnifiedEnabled`: a failed `userAbstraction` lookup is not retried until
+    `enableUnifiedMarginRetryDelay` ms (default 300000) after
+    `enableUnifiedMarginFailedAt`; a successful lookup clears the failure mark.
+    Callers that already know the account mode can preset the
+    `enableUnifiedMargin` option to skip the lookup entirely.
 
 Why a separate repository: resolving that module from `ccxt/ccxt` (or from a fork of
 it) makes the Go toolchain clone every ref of the source repository — about 1.06M refs
