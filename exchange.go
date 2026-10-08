@@ -32,7 +32,7 @@ import (
 
 type BaseExchange struct {
 	wsBackoffState map[string][]int64 // per-url reconnect attempts + lastAttempt, see CalculateWsBackoffDelay
-	MarketsMutex *sync.Mutex
+	MarketsMutex   *sync.Mutex
 	// cachedCurrenciesMutex  sync.Mutex
 	loadMu                 sync.Mutex
 	marketsLoading         bool
@@ -315,7 +315,6 @@ func (this *BaseExchange) Init(userConfig map[string]any) {
 	}
 	// to do
 }
-
 
 // Dual-stack (IPv4 + IPv6) networking helpers for the hand-written Go base.
 // Every HTTP transport and WebSocket dialer constructed by the base exchange
@@ -672,6 +671,11 @@ func IsError(res any) bool {
 
 func CreateReturnError(res any) error {
 	resStr := res.(string)
+	// Check before stripping panic prefixes or extracting an inner CCXT class:
+	// both transformations can otherwise erase fatal initialization provenance.
+	if strings.Contains(resStr, "alphafox_hyperliquid_init:") {
+		return &HyperliquidInitializationRuntimeError{Message: resStr}
+	}
 	resStr = strings.ReplaceAll(resStr, "panic:", "")
 	if strings.Contains(resStr, "ccxtError") {
 		// resStr = strings.ReplaceAll(resStr, "ccxtError", "")
@@ -2504,7 +2508,7 @@ func (this *BaseExchange) CalculateWsBackoffDelay(url string) int {
 	for i := int64(1); i < capped; i++ {
 		delay = delay * factor
 	}
-	jitterMillis := now % 1000 // rng-free jitter
+	jitterMillis := now % 1000                                               // rng-free jitter
 	jittered := int64(float64(delay) * (0.8 + float64(jitterMillis)/2500.0)) // 0.8x .. 1.2x
 	if jittered > maxDelay {
 		jittered = maxDelay // the ceiling holds regardless of jitter

@@ -184,19 +184,19 @@ func (this *BaseExchange) Fetch(url any, method any, headers any, body any) chan
 			if resp.Header.Get("Content-Encoding") == "gzip" {
 				gzipReader, err := gzip.NewReader(resp.Body)
 				if err != nil {
-					panic(fmt.Sprintf("Error creating gzip reader: %s", err))
+					panic(BadResponse(fmt.Sprintf("Error creating gzip reader: %s", err)))
 				}
 				defer gzipReader.Close()
 
 				decompressedData, err := io.ReadAll(gzipReader)
 				if err != nil {
-					panic(fmt.Sprintf("Error reading decompressed data: %s", err))
+					panic(BadResponse(fmt.Sprintf("Error reading decompressed data: %s", err)))
 				}
 				respBody = decompressedData
 			} else {
 				respBodyAux, err := ioutil.ReadAll(resp.Body)
 				if err != nil {
-					panic(fmt.Sprintf("failed to read response body: %v", err))
+					panic(NetworkError(fmt.Sprintf("failed to read response body: %v", err)))
 				}
 				respBody = respBodyAux
 			}
