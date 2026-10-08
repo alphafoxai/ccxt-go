@@ -477,7 +477,7 @@ func (this *HyperliquidCore) fetchCurrenciesBody(ch chan any, optionalArgs ...an
 	if IsTrue(this.CheckRequiredCredentials(false)) {
 
 		retRes44812 := (<-this.InitializeClient())
-		PanicOnError(retRes44812)
+		hyperliquidCheckInitialization(retRes44812)
 	}
 	var request map[string]any = map[string]any{
 		"type": "spotMeta",
@@ -2101,7 +2101,10 @@ func (this *HyperliquidCore) setRefBody(ch chan any) any {
 					}
 					ret_ = func(this *HyperliquidCore) any {
 						// catch block:
-						response = nil // ignore this
+						if !hyperliquidInitializationCanIgnore(e) {
+							panic(e)
+						}
+						response = nil // ignore known API errors only
 						return nil
 					}(this)
 				}
@@ -2171,47 +2174,7 @@ func (this *HyperliquidCore) approveBuilderFeeBody(ch chan any, builder any, max
 	return nil
 }
 func (this *HyperliquidCore) InitializeClient() <-chan any {
-	ch := make(chan any, 1)
-	go this.initializeClientBody(ch)
-	return ch
-}
-func (this *HyperliquidCore) initializeClientBody(ch chan any) any {
-	defer close(ch)
-	defer ReturnPanicError(ch)
-	chSent := false
-	_ = chSent
-
-	{
-		func(this *HyperliquidCore) (ret_ any) {
-			defer func() {
-				if e := recover(); e != nil {
-					if e == "break" {
-						return
-					}
-					ret_ = func(this *HyperliquidCore) any {
-						// catch block:
-
-						ch <- false
-						chSent = true
-						return nil
-
-					}(this)
-				}
-			}()
-			// try block:
-
-			retRes189312 := (<-promiseAll([]any{this.HandleBuilderFeeApproval(), this.SetRef(), this.IsUnifiedEnabled("fetchBalance", nil, false, map[string]any{})}))
-			PanicOnError(retRes189312) // for now only fetchBalance requires the unified knowledge, but we can extend this to other methods as needed
-			return nil
-		}(this)
-		if chSent {
-			return nil
-		}
-
-	}
-
-	ch <- true
-	return nil
+	return this.initializeClientShared()
 }
 func (this *HyperliquidCore) HandleBuilderFeeApproval() <-chan any {
 	ch := make(chan any, 1)
@@ -2256,6 +2219,9 @@ func (this *HyperliquidCore) handleBuilderFeeApprovalBody(ch chan any) any {
 					}
 					ret_ = func(this *HyperliquidCore) any {
 						// catch block:
+						if !hyperliquidInitializationCanIgnore(e) {
+							panic(e)
+						}
 						AddElementToObject(this.Options, "builderFee", false) // disable builder fee if an error occurs
 						AddElementToObject(this.Options, "builderFeeApprovalFailedAt", this.Milliseconds())
 						return nil
@@ -2273,7 +2239,11 @@ func (this *HyperliquidCore) handleBuilderFeeApprovalBody(ch chan any) any {
 
 			retRes191412 := (<-this.ApproveBuilderFee(builder, maxFeeRate))
 			PanicOnError(retRes191412)
+			if !IsTrue(IsEqual(this.SafeString(retRes191412, "status"), "ok")) {
+				panic(BadResponse("hyperliquid builder approval did not return status ok"))
+			}
 			AddElementToObject(this.Options, "approvedBuilderFee", true)
+			AddElementToObject(this.Options, "builderFeeApprovalFailedAt", nil)
 			return nil
 		}(this)
 
@@ -2347,7 +2317,7 @@ func (this *HyperliquidCore) isUnifiedEnabledBody(ch chan any, method any, optio
 						}
 						ret_ = func(this *HyperliquidCore) any {
 							// catch block:
-							if IsTrue(IsInstance(e, InvalidProxySettings)) {
+							if !hyperliquidInitializationCanIgnore(e) {
 								panic(e)
 							}
 							response = nil // ignore this error and assume unified margin is not enabled
@@ -2369,12 +2339,13 @@ func (this *HyperliquidCore) isUnifiedEnabledBody(ch chan any, method any, optio
 		//
 		// "unifiedAccount" | "portfolioMargin" | "disabled" | "default" | "dexAbstraction"
 		//
-		if IsTrue(!IsEqual(response, nil)) {
-			response = Replace(response, "\"", "")
-			response = Replace(response, "\"", "")
-			enableUnifiedMargin = IsEqual(response, "unifiedAccount")
+		mode, known := hyperliquidUnifiedMode(response)
+		if known {
+			enableUnifiedMargin = mode
 			AddElementToObject(this.Options, "enableUnifiedMarginFailedAt", nil)
 		} else {
+			// Unknown strings are not a successful disabled-mode lookup.
+			enableUnifiedMargin = nil
 			AddElementToObject(this.Options, "enableUnifiedMarginFailedAt", this.Milliseconds())
 		}
 		// don't cache this result if this is a different addresss
@@ -2587,9 +2558,14 @@ func (this *HyperliquidCore) createOrderBody(ch chan any, symbol any, typeVar an
 		retRes211712 := (<-this.LoadMarkets())
 		PanicOnError(retRes211712)
 	}
+	initTiming := this.SafeValue(params, "alphafoxInitTiming")
+	params = this.Omit(params, "alphafoxInitTiming")
 	orderglobalParamsVariable := this.ParseCreateEditOrderArgs(nil, symbol, typeVar, side, amount, price, params)
 	order := GetValue(orderglobalParamsVariable, 0)
 	globalParams := GetValue(orderglobalParamsVariable, 1)
+	if initTiming != nil {
+		AddElementToObject(globalParams, "alphafoxInitTiming", initTiming)
+	}
 
 	orders := (<-this.CreateOrders([]any{order}, globalParams))
 	PanicOnError(orders)
@@ -2630,7 +2606,7 @@ func (this *HyperliquidCore) createTwapOrderBody(ch chan any, symbol any, side a
 	}
 
 	retRes21438 := (<-this.InitializeClient())
-	PanicOnError(retRes21438)
+	hyperliquidCheckInitialization(retRes21438)
 	var market any = this.Market(symbol)
 	var nonce int64 = this.Milliseconds()
 	var isBuy bool = (IsEqual(side, "BUY"))
@@ -2723,8 +2699,7 @@ func (this *HyperliquidCore) createOrdersBody(ch chan any, orders any, optionalA
 		PanicOnError(retRes221412)
 	}
 
-	retRes22168 := (<-this.InitializeClient())
-	PanicOnError(retRes22168)
+	params = this.initializeClientForOrders(params)
 	var request any = this.CreateOrdersRequest(orders, params)
 
 	response := (<-this.PrivatePostExchange(request))
@@ -3052,7 +3027,7 @@ func (this *HyperliquidCore) cancelOrdersBody(ch chan any, ids any, optionalArgs
 	}
 
 	retRes24978 := (<-this.InitializeClient())
-	PanicOnError(retRes24978)
+	hyperliquidCheckInitialization(retRes24978)
 	var request any = this.CancelOrdersRequest(ids, symbol, params)
 
 	response := (<-this.PrivatePostExchange(request))
@@ -3265,7 +3240,7 @@ func (this *HyperliquidCore) cancelOrdersForSymbolsBody(ch chan any, orders any,
 	}
 
 	retRes26688 := (<-this.InitializeClient())
-	PanicOnError(retRes26688)
+	hyperliquidCheckInitialization(retRes26688)
 	var nonce int64 = this.Milliseconds()
 	var request map[string]any = map[string]any{
 		"nonce": nonce,
@@ -3363,7 +3338,7 @@ func (this *HyperliquidCore) cancelAllOrdersAfterBody(ch chan any, timeout any, 
 	}
 
 	retRes27468 := (<-this.InitializeClient())
-	PanicOnError(retRes27468)
+	hyperliquidCheckInitialization(retRes27468)
 	params = this.Omit(params, []any{"clientOrderId", "client_id"})
 	var nonce int64 = this.Milliseconds()
 	var request map[string]any = map[string]any{
@@ -3602,7 +3577,7 @@ func (this *HyperliquidCore) editOrdersBody(ch chan any, orders any, optionalArg
 	}
 
 	retRes29458 := (<-this.InitializeClient())
-	PanicOnError(retRes29458)
+	hyperliquidCheckInitialization(retRes29458)
 	var request any = this.EditOrdersRequest(orders, params)
 
 	response := (<-this.PrivatePostExchange(request))
