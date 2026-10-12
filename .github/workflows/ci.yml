@@ -1,0 +1,35 @@
+name: Hyperliquid fork contracts
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ccxt-hyperliquid-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  hyperliquid-contracts:
+    # Public forks do not run on organization self-hosted credentials/runners.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      GOWORK: 'off'
+      GOMEMLIMIT: 3GiB
+      GOGC: '20'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Native signing, initialization and per-call transport contracts
+        run: go test -p 1 -timeout 180s -count=1 . -run '^TestHyperliquid(Initialization|OrderTiming|CreateOrderTimingHookEndToEnd)'
+      - name: Native context and initialization race contracts
+        run: go test -p 1 -race -timeout 180s -count=3 . -run '^TestHyperliquid(OrderTiming|CreateOrderTimingHookEndToEnd)'
