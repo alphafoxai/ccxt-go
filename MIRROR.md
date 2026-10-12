@@ -77,6 +77,23 @@ taken from `github.com/ccxt/ccxt/go/v4` at release **v4.5.77**, with these chang
     timing callback execution exactly once, and checks every serialized HTTP body
     for hook leakage. These tests were added but **not run**; no ccxt build,
     Go test, or compilation was performed.
+  - `hyperliquid_order_timing.go` exposes `AlphafoxOrderTimingSupported() bool`.
+    Order-local `alphafoxOrderContext` (`context.Context`) and
+    `alphafoxOrderTiming` (`func(string, time.Duration)`) are removed before
+    crypto/request construction and never stored in shared options or sent on
+    the wire. `sign` covers native crypto/build, `throttle` the actual limiter
+    wait (disabled means known zero), and `serialize` the native Sign request
+    serialization on each attempt. Only that order's `/exchange` HTTP request
+    receives the context, including existing retries; initialization remains
+    independent and exported `Fetch` remains unchanged.
+    Local `go test . -run 'TestHyperliquidOrderTiming|TestHyperliquidCreateOrderTimingHookEndToEnd'`
+    passed with in-memory transport and real native signing. Coverage includes
+    concurrent context isolation, unchanged signed bytes across retries,
+    cancellation/unknown outcome classification, throttle/sign failure and no
+    hook leakage into initialization. No real order or new tag was published;
+    a new immutable fork release is required before consumers can pin this capability.
+    The same targeted native cases also passed `-race -count=3` locally;
+    compiler concurrency was bounded after simultaneous CCXT builds were killed.
 
 Why a separate repository: resolving that module from `ccxt/ccxt` (or from a fork of
 it) makes the Go toolchain clone every ref of the source repository — about 1.06M refs

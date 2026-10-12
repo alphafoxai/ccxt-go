@@ -3,6 +3,7 @@ package ccxt
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,6 +14,14 @@ import (
 )
 
 func (this *BaseExchange) Fetch(url any, method any, headers any, body any) chan any {
+	return this.fetchWithContext(nil, url, method, headers, body)
+}
+
+// A nil context retains the ordinary Fetch behavior for all unrelated callers.
+func (this *BaseExchange) fetchWithContext(ctx context.Context, url any, method any, headers any, body any) chan any {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	ch := make(chan any)
 	go func() {
 		defer close(ch)
@@ -113,7 +122,7 @@ func (this *BaseExchange) Fetch(url any, method any, headers any, body any) chan
 				// 		data.Set(key, value)
 				// 	}
 				// }
-				req, err = http.NewRequest(methodStr, urlStr, strings.NewReader(v))
+				req, err = http.NewRequestWithContext(ctx, methodStr, urlStr, strings.NewReader(v))
 				if err != nil {
 					panic("error creating request")
 				}
@@ -122,13 +131,13 @@ func (this *BaseExchange) Fetch(url any, method any, headers any, body any) chan
 				if err != nil {
 					panic("error marshalling JSON")
 				}
-				req, err = http.NewRequest(methodStr, urlStr, bytes.NewBuffer(requestBody))
+				req, err = http.NewRequestWithContext(ctx, methodStr, urlStr, bytes.NewBuffer(requestBody))
 				if err != nil {
 					panic("error creating request")
 				}
 			}
 		} else {
-			req, err = http.NewRequest(methodStr, urlStr, nil)
+			req, err = http.NewRequestWithContext(ctx, methodStr, urlStr, nil)
 			if err != nil {
 				panic("error creating request")
 			}

@@ -4616,11 +4616,13 @@ func (this *BaseExchange) fetch2Body(ch chan any, path any, optionalArgs ...any)
 	_ = body
 	config := GetArg(optionalArgs, 5, map[string]any{})
 	_ = config
+	params, orderCall := this.takeHyperliquidOrderTransport(path, api, method, params)
 	if IsTrue(this.EnableRateLimit) {
 		var cost any = this.CalculateRateLimiterCost(api, method, path, params, config)
 
-		retRes643112 := (<-this.Throttle(cost))
-		PanicOnError(retRes643112)
+		this.throttleOrderRequest(cost, orderCall)
+	} else if orderCall.timing != nil {
+		orderCall.timing("throttle", 0)
 	}
 	var retries any = 0
 	retriesparamsVariable := this.HandleOptionAndParams(params, path, "maxRetriesOnFailure", retries)
@@ -4680,14 +4682,14 @@ func (this *BaseExchange) fetch2Body(ch chan any, path any, optionalArgs ...any)
 				// try block:
 				this.SetLastRestRequestTimestamp()
 
-				var request any = this.DerivedExchange.Sign(path, api, method, params, headers, body)
+				var request any = this.signOrderTransport(orderCall, path, api, method, params, headers, body)
 				PanicOnError(request)
 				if IsTrue(IsTrue(fetchDataCacheEnabled) && IsTrue((!IsEqual(fetchData, nil)))) {
 					AddElementToObject(fetchData, "request", request)
 				}
 				this.SetLastRequest(request)
 
-				response := (<-this.Fetch(GetValue(request, "url"), GetValue(request, "method"), GetValue(request, "headers"), GetValue(request, "body")))
+				response := (<-this.fetchWithContext(orderCall.ctx, GetValue(request, "url"), GetValue(request, "method"), GetValue(request, "headers"), GetValue(request, "body")))
 				PanicOnError(response)
 				if IsTrue(IsTrue(fetchDataCacheEnabled) && IsTrue((!IsEqual(fetchData, nil)))) {
 					AddElementToObject(GetValue(fetchData, "response"), "body", response)
