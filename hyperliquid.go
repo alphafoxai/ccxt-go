@@ -2560,12 +2560,14 @@ func (this *HyperliquidCore) createOrderBody(ch chan any, symbol any, typeVar an
 	}
 	initTiming := this.SafeValue(params, "alphafoxInitTiming")
 	params = this.Omit(params, "alphafoxInitTiming")
+	params, orderCall := this.takeHyperliquidOrderCall(params)
 	orderglobalParamsVariable := this.ParseCreateEditOrderArgs(nil, symbol, typeVar, side, amount, price, params)
 	order := GetValue(orderglobalParamsVariable, 0)
 	globalParams := GetValue(orderglobalParamsVariable, 1)
 	if initTiming != nil {
 		AddElementToObject(globalParams, "alphafoxInitTiming", initTiming)
 	}
+	orderCall.attach(globalParams)
 
 	orders := (<-this.CreateOrders([]any{order}, globalParams))
 	PanicOnError(orders)
@@ -2699,8 +2701,10 @@ func (this *HyperliquidCore) createOrdersBody(ch chan any, orders any, optionalA
 		PanicOnError(retRes221412)
 	}
 
+	params, orderCall := this.takeHyperliquidOrderCall(params)
 	params = this.initializeClientForOrders(params)
-	var request any = this.CreateOrdersRequest(orders, params)
+	var request any = this.createOrdersRequestTimed(orders, params, orderCall)
+	orderCall.attach(request)
 
 	response := (<-this.PrivatePostExchange(request))
 	PanicOnError(response)
