@@ -3,7 +3,7 @@ name: Hyperliquid fork contracts
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, perf/hyperliquid-order-transport-timing]
 
 permissions:
   contents: read
